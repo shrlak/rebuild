@@ -179,11 +179,20 @@ one-time manual smoke on a desktop.
 - [x] Wayland `wtype` injection backend, auto-selected on pure-Wayland
       sessions.
 - [x] Audio cues on record start/stop (never raise headless).
+- [x] Command mode: hold a second hotkey (`ctrl+alt+c`), speak an
+      instruction, and the current selection is replaced with the LLM's
+      rewrite (selection captured via clipboard-copy with save/restore).
+      Pluggable backends — `openai-compat` (Ollama/llama.cpp: stays fully
+      local) or `anthropic` (Claude API) — off by default. Also exposed as
+      `localflow rewrite` for terminal/pipe use.
+- [x] CI on GitHub Actions: unit + real-model e2e with the Whisper model
+      cached between runs.
 
 ## 7. v2 ideas (not built now)
 
 - Streaming partial transcripts (chunked decode while recording).
-- Command mode + tone rewriting via a local or API LLM.
+- Per-app tone profiles (apply a rewrite automatically based on the focused
+  app) — the LLM plumbing from command mode makes this a small step.
 - Tray icon / recording indicator overlay (pystray or a tiny Tk window).
-- Auto-learn dictionary from corrections; per-app formatting profiles.
+- Auto-learn dictionary from corrections.
 - Wayland-native global hotkey (evdev) — injection is covered by `wtype`.

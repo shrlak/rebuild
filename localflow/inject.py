@@ -104,6 +104,41 @@ class WtypeInjector(Injector):
         subprocess.run(["wtype", "-k", "Return"], check=True)
 
 
+_NO_SELECTION_SENTINEL = "⁣localflow:no-selection⁣"
+
+
+def get_selection() -> str | None:
+    """Return the currently selected text in the focused app, or None.
+
+    Works by seeding the clipboard with a sentinel, sending Cmd/Ctrl+C, and
+    reading the clipboard back: if the sentinel survived, nothing was
+    selected. The previous clipboard is restored afterwards.
+    """
+    import pyperclip
+    from pynput.keyboard import Controller, Key
+
+    keyboard = Controller()
+    try:
+        previous = pyperclip.paste()
+    except Exception:
+        previous = None
+    pyperclip.copy(_NO_SELECTION_SENTINEL)
+    time.sleep(0.05)
+    modifier = Key.cmd if sys.platform == "darwin" else Key.ctrl
+    with keyboard.pressed(modifier):
+        keyboard.press("c")
+        keyboard.release("c")
+    time.sleep(0.15)  # give the app time to service the copy
+    try:
+        text = pyperclip.paste()
+    finally:
+        if previous is not None:
+            pyperclip.copy(previous)
+    if text == _NO_SELECTION_SENTINEL or not text:
+        return None
+    return text
+
+
 def gui_available() -> bool:
     if sys.platform in ("darwin", "win32"):
         return True

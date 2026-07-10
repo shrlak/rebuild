@@ -60,6 +60,13 @@ localflow transcribe recording.wav --raw    # raw ASR output, no cleanup
   sessions), `clipboard` (copy only), `stdout` (headless/piping). If
   injection fails the text always lands on the clipboard — a dictation is
   never lost. `localflow last --copy` re-copies the most recent one.
+- **Command mode** (optional, off by default): select text, hold the command
+  hotkey (`ctrl+alt+c`), and speak an instruction — "make this more formal",
+  "translate to French", "turn into bullet points" — and the selection is
+  replaced with the result. Needs an LLM: set `llm_backend = "openai-compat"`
+  to use a local Ollama/llama.cpp server (fully on-machine), or
+  `"anthropic"` for the Claude API. `localflow rewrite "instruction" --text
+  "..."` (or pipe stdin) runs the same thing from the terminal.
 - **History & stats**: `localflow history`, `localflow stats` (words, WPM,
   estimated time saved). Stored as plain JSONL in your config dir; disable
   with `history_enabled = false`.

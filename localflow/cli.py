@@ -38,6 +38,10 @@ def build_parser() -> argparse.ArgumentParser:
     tr.add_argument("--raw", action="store_true", help="print raw ASR text, skip cleanup")
     tr.add_argument("--json", action="store_true", help="print full result entry as JSON")
 
+    rw = sub.add_parser("rewrite", help="command mode: apply an instruction to text via the configured LLM")
+    rw.add_argument("instruction", help="e.g. 'make this more formal'")
+    rw.add_argument("--text", help="text to transform (default: read from stdin if piped)")
+
     hist = sub.add_parser("history", help="show recent dictations")
     hist.add_argument("-n", type=int, default=10, help="number of entries (default 10)")
 
@@ -116,6 +120,25 @@ def main(argv: list[str] | None = None) -> int:
             from dataclasses import asdict
 
             print(json.dumps(asdict(entry), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "rewrite":
+        from .llm import create_backend
+
+        backend = create_backend(
+            cfg.llm_backend, model=cfg.llm_model, base_url=cfg.llm_base_url
+        )
+        if backend is None:
+            print(
+                "command mode is disabled — set llm_backend to 'openai-compat' "
+                "(local, e.g. Ollama) or 'anthropic' in the config",
+                file=sys.stderr,
+            )
+            return 1
+        text = args.text
+        if text is None and not sys.stdin.isatty():
+            text = sys.stdin.read()
+        print(backend.rewrite(args.instruction, text or None))
         return 0
 
     if args.command == "history":

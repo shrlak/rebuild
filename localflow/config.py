@@ -30,6 +30,11 @@ class Config:
     # --- activation ---
     hotkey: str = "ctrl+alt+space"
     mode: str = "hold"             # "hold" (push-to-talk) or "toggle"
+    # --- command mode (speak an instruction to edit selected text) ---
+    command_hotkey: str = "ctrl+alt+c"
+    llm_backend: str = "none"      # none / openai-compat (Ollama etc.) / anthropic
+    llm_model: str | None = None   # None = backend default
+    llm_base_url: str = "http://localhost:11434/v1"
     # --- output ---
     backend: str = "auto"          # auto/type/paste/clipboard/stdout/wtype
     sound_cues: bool = True        # blip when recording starts/stops
@@ -75,6 +80,8 @@ class Config:
             raise ValueError(f"unknown backend {cfg.backend!r}")
         if cfg.engine not in ("faster-whisper", "whispercpp"):
             raise ValueError(f"unknown engine {cfg.engine!r}")
+        if cfg.llm_backend not in ("none", "openai-compat", "anthropic"):
+            raise ValueError(f"unknown llm_backend {cfg.llm_backend!r}")
         return cfg
 
     def save(self, path: Path | None = None) -> Path:
