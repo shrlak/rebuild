@@ -57,6 +57,15 @@ def build_parser() -> argparse.ArgumentParser:
     dvocab.add_argument("words", nargs="+")
     dsub.add_parser("list", help="show dictionary contents")
 
+    s = sub.add_parser("snippet", help="manage voice-triggered snippets")
+    ssub = s.add_subparsers(dest="snippet_command", required=True)
+    sadd = ssub.add_parser("add", help="add snippet: trigger phrase -> inserted text")
+    sadd.add_argument("trigger")
+    sadd.add_argument("text", help=r"snippet body; \n becomes a newline")
+    srm = ssub.add_parser("remove", help="remove a snippet")
+    srm.add_argument("trigger")
+    ssub.add_parser("list", help="show snippets")
+
     c = sub.add_parser("config", help="show or initialize configuration")
     csub = c.add_subparsers(dest="config_command", required=True)
     csub.add_parser("show", help="print effective config")
@@ -161,6 +170,23 @@ def main(argv: list[str] | None = None) -> int:
                 {"replacements": d.replacements, "vocabulary": d.vocabulary},
                 indent=2, ensure_ascii=False,
             ))
+        return 0
+
+    if args.command == "snippet":
+        d = Dictionary(cfg.dictionary_path)
+        if args.snippet_command == "add":
+            d.add_snippet(args.trigger, args.text.replace("\\n", "\n"))
+            d.save()
+            print(f"added snippet {args.trigger!r}")
+        elif args.snippet_command == "remove":
+            if d.remove_snippet(args.trigger):
+                d.save()
+                print(f"removed snippet {args.trigger!r}")
+            else:
+                print(f"not found: {args.trigger!r}", file=sys.stderr)
+                return 1
+        elif args.snippet_command == "list":
+            print(json.dumps(d.snippets, indent=2, ensure_ascii=False))
         return 0
 
     if args.command == "config":

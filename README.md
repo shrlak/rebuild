@@ -33,7 +33,9 @@ localflow transcribe recording.wav --raw    # raw ASR output, no cleanup
 ## What it does
 
 - **Push-to-talk**: hold `ctrl+alt+space` (configurable, e.g. `f9`), speak,
-  release. Or `mode = "toggle"` to tap-to-start / tap-to-stop.
+  release. **Double-tap** the hotkey for hands-free mode (recording stays on;
+  tap once more to stop), or set `mode = "toggle"` for tap-to-start/stop.
+  Audio cues blip when recording starts/stops (`sound_cues = false` to mute).
 - **Local ASR**: [faster-whisper](https://github.com/SYSTRAN/faster-whisper)
   (CTranslate2, int8 on CPU, Silero VAD) by default; or
   [pywhispercpp](https://github.com/absadiki/pywhispercpp) (`engine =
@@ -50,10 +52,12 @@ localflow transcribe recording.wav --raw    # raw ASR output, no cleanup
 - **Personal dictionary**: `localflow dict add "wispr" "Wispr"` fixes
   spellings after ASR; `localflow dict vocab CTranslate2 Anthropic` biases
   the recognizer toward your jargon (fed as hotwords/initial prompt).
-  Multi-word replacements double as snippets.
+- **Snippets**: `localflow snippet add "sign off" "Best,\nSpencer"` — say
+  "sign off" and the block is inserted verbatim, formatting intact.
 - **Insertion backends**: `paste` (clipboard + Cmd/Ctrl+V with clipboard
   save/restore — the default, same mechanism Wispr uses), `type` (simulated
-  keystrokes), `clipboard` (copy only), `stdout` (headless/piping). If
+  keystrokes), `wtype` (Wayland-native, auto-selected on pure-Wayland
+  sessions), `clipboard` (copy only), `stdout` (headless/piping). If
   injection fails the text always lands on the clipboard — a dictation is
   never lost. `localflow last --copy` re-copies the most recent one.
 - **History & stats**: `localflow history`, `localflow stats` (words, WPM,
@@ -94,9 +98,10 @@ The terminal/app you launch `localflow` from is what needs the grant.
 
 **Linux (X11)** — needs `xclip` or `xsel` for the paste backend
 (`sudo apt install xclip`) and PortAudio for the mic
-(`sudo apt install libportaudio2`). **Wayland** — global key listening and
-clipboard need X11 compatibility (XWayland) or use `backend = "type"`;
-first-class Wayland support (`wtype`/`ydotool`) is on the v2 list.
+(`sudo apt install libportaudio2`). **Wayland** — text insertion works via
+the `wtype` backend (`sudo apt install wtype`; auto-selected on pure-Wayland
+sessions), but pynput's global hotkey listener still needs XWayland — a
+compositor-native hotkey path (`evdev`) is on the v2 list.
 
 **Headless / servers** — skip the `desktop` extra; `localflow transcribe`
 and the `stdout`/`clipboard` backends work without a GUI.

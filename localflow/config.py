@@ -31,7 +31,8 @@ class Config:
     hotkey: str = "ctrl+alt+space"
     mode: str = "hold"             # "hold" (push-to-talk) or "toggle"
     # --- output ---
-    backend: str = "auto"          # auto/type/paste/clipboard/stdout
+    backend: str = "auto"          # auto/type/paste/clipboard/stdout/wtype
+    sound_cues: bool = True        # blip when recording starts/stops
     # --- cleanup ---
     remove_fillers: bool = True
     backtrack: bool = True         # "scratch that" / "strike that" self-correction
@@ -70,7 +71,7 @@ class Config:
                 setattr(cfg, key, value)
         if cfg.mode not in ("hold", "toggle"):
             raise ValueError(f"mode must be 'hold' or 'toggle', got {cfg.mode!r}")
-        if cfg.backend not in ("auto", "type", "paste", "clipboard", "stdout"):
+        if cfg.backend not in ("auto", "type", "paste", "clipboard", "stdout", "wtype"):
             raise ValueError(f"unknown backend {cfg.backend!r}")
         if cfg.engine not in ("faster-whisper", "whispercpp"):
             raise ValueError(f"unknown engine {cfg.engine!r}")

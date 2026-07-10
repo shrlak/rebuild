@@ -4,13 +4,25 @@ Uses pynput's low-level listener so we can implement *hold* semantics
 (record while all hotkey keys are down, stop when any is released), which
 pynput's GlobalHotKeys API doesn't support.
 
+Hold mode also supports Wispr Flow's hands-free gesture: **double-tap** the
+hotkey to lock recording on (release does nothing), then tap once more to
+stop. The first quick tap of a double-tap yields a sub-quarter-second clip
+that the app discards as an accidental tap.
+
 Hotkey strings are '+'-separated, e.g. "ctrl+alt+space", "f9", "cmd+shift+d".
+
+The key-state machine (`_on_key_down`/`_on_key_up`) is pure and driven with
+already-normalized key objects, so it is unit-testable without pynput or a
+display; the pynput listener is only wired up in `start()`.
 """
 
 from __future__ import annotations
 
 import threading
+import time
 from typing import Callable
+
+DOUBLE_TAP_SECONDS = 0.4
 
 
 def parse_hotkey(spec: str):
@@ -65,49 +77,66 @@ def _canonical(listener, key):
 class HotkeyListener:
     """Fires on_activate/on_deactivate around the hotkey.
 
-    mode="hold":   activate when the full combo goes down, deactivate when
-                   any key of it is released (push-to-talk).
+    mode="hold":   activate while the full combo is down (push-to-talk);
+                   double-tap locks hands-free, one more tap unlocks.
     mode="toggle": each full combo press flips active on/off.
     """
 
     def __init__(
         self,
-        hotkey: str,
+        hotkey: str | set,
         mode: str,
         on_activate: Callable[[], None],
         on_deactivate: Callable[[], None],
+        double_tap_seconds: float = DOUBLE_TAP_SECONDS,
+        clock: Callable[[], float] = time.monotonic,
     ):
         if mode not in ("hold", "toggle"):
             raise ValueError(f"mode must be 'hold' or 'toggle', got {mode!r}")
-        self.combo = parse_hotkey(hotkey)
+        self.combo = hotkey if isinstance(hotkey, set) else parse_hotkey(hotkey)
         self.mode = mode
         self.on_activate = on_activate
         self.on_deactivate = on_deactivate
+        self.double_tap_seconds = double_tap_seconds
         self.active = False
+        self.locked = False  # hands-free latch (hold mode only)
+        self._clock = clock
         self._pressed = set()
         self._combo_down = False
+        self._last_combo_press = float("-inf")
         self._lock = threading.Lock()
         self._listener = None
 
-    # The two callbacks below run on pynput's listener thread.
+    # --- pure state machine (keys must already be canonical) ---
 
-    def _handle_press(self, key) -> None:
-        key = _canonical(self._listener, key)
+    def _on_key_down(self, key) -> None:
         with self._lock:
             self._pressed.add(key)
             if self._combo_down or not self.combo.issubset(self._pressed):
                 return
             self._combo_down = True
-            if self.mode == "hold":
-                self.active = True
-                fire = self.on_activate
-            else:
+            fire = None
+            if self.mode == "toggle":
                 self.active = not self.active
                 fire = self.on_activate if self.active else self.on_deactivate
-        fire()
+            elif self.locked:
+                # hands-free is on: this tap turns it off
+                self.locked = False
+                self.active = False
+                self._last_combo_press = float("-inf")
+                fire = self.on_deactivate
+            else:
+                now = self._clock()
+                if now - self._last_combo_press < self.double_tap_seconds:
+                    self.locked = True  # second tap: latch hands-free
+                self._last_combo_press = now
+                if not self.active:
+                    self.active = True
+                    fire = self.on_activate
+        if fire:
+            fire()
 
-    def _handle_release(self, key) -> None:
-        key = _canonical(self._listener, key)
+    def _on_key_up(self, key) -> None:
         with self._lock:
             self._pressed.discard(key)
             combo_was_down = self._combo_down
@@ -119,11 +148,20 @@ class HotkeyListener:
                 and combo_was_down
                 and key in self.combo
                 and self.active
+                and not self.locked
             ):
                 self.active = False
                 fire = self.on_deactivate
         if fire:
             fire()
+
+    # --- pynput wiring (runs on the listener thread) ---
+
+    def _handle_press(self, key) -> None:
+        self._on_key_down(_canonical(self._listener, key))
+
+    def _handle_release(self, key) -> None:
+        self._on_key_up(_canonical(self._listener, key))
 
     def start(self) -> None:
         from pynput import keyboard

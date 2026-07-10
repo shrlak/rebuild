@@ -63,6 +63,7 @@ class LocalFlowApp:
         send_enter = False
         if self.config.press_enter_command:
             text, send_enter = cleanup.extract_press_enter(text)
+        text = self.dictionary.apply_snippets(text)
         if not text:
             return None
         self._inject_with_fallback(text)
@@ -116,19 +117,31 @@ class LocalFlowApp:
               f"backend={self.injector.name}", file=sys.stderr)
         print("Loading ASR model...", file=sys.stderr)
         self.transcriber.load()
-        action = "Hold" if self.config.mode == "hold" else "Press"
-        print(f"{action} [{self.config.hotkey}] and speak. Ctrl+C to quit.",
-              file=sys.stderr)
+        if self.config.mode == "hold":
+            print(f"Hold [{self.config.hotkey}] and speak "
+                  "(double-tap for hands-free, tap again to stop). "
+                  "Ctrl+C to quit.", file=sys.stderr)
+        else:
+            print(f"Press [{self.config.hotkey}] to start/stop dictation. "
+                  "Ctrl+C to quit.", file=sys.stderr)
 
         def on_activate():
             try:
                 recorder.start()
+                if self.config.sound_cues:
+                    from .feedback import play_cue
+
+                    play_cue("start")
                 print("● recording...", file=sys.stderr)
             except RuntimeError as exc:
                 print(f"error: {exc}", file=sys.stderr)
 
         def on_deactivate():
             audio = recorder.stop()
+            if self.config.sound_cues:
+                from .feedback import play_cue
+
+                play_cue("stop")
             print(f"○ processing {duration_seconds(audio):.1f}s...",
                   file=sys.stderr)
             # Process off the hotkey-listener thread so the next dictation
