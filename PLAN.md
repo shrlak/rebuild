@@ -169,10 +169,30 @@ as a subprocess. The one thing that inherently cannot be exercised headless
 is the live mic + global hotkey path; its logic is unit-isolated and needs a
 one-time manual smoke on a desktop.
 
-## 6. v2 ideas (not built now)
+## 6. Follow-up increment (built after v1 landed)
+
+- [x] Double-tap hands-free mode: double-tap the hotkey to latch recording,
+      tap again to stop (Wispr's hands-free gesture). Hotkey state machine
+      refactored to be pure and unit-tested without pynput/display.
+- [x] Snippets: voice-trigger → verbatim text block (`localflow snippet
+      add/remove/list`), applied post-cleanup, triggers fed to ASR hotwords.
+- [x] Wayland `wtype` injection backend, auto-selected on pure-Wayland
+      sessions.
+- [x] Audio cues on record start/stop (never raise headless).
+- [x] Command mode: hold a second hotkey (`ctrl+alt+c`), speak an
+      instruction, and the current selection is replaced with the LLM's
+      rewrite (selection captured via clipboard-copy with save/restore).
+      Pluggable backends — `openai-compat` (Ollama/llama.cpp: stays fully
+      local) or `anthropic` (Claude API) — off by default. Also exposed as
+      `localflow rewrite` for terminal/pipe use.
+- [x] CI on GitHub Actions: unit + real-model e2e with the Whisper model
+      cached between runs.
+
+## 7. v2 ideas (not built now)
 
 - Streaming partial transcripts (chunked decode while recording).
-- Command mode + tone rewriting via a local or API LLM.
+- Per-app tone profiles (apply a rewrite automatically based on the focused
+  app) — the LLM plumbing from command mode makes this a small step.
 - Tray icon / recording indicator overlay (pystray or a tiny Tk window).
-- Auto-learn dictionary from corrections; per-app formatting profiles.
-- Wayland injection backend (`wtype`/`ydotool`), Windows SendInput backend.
+- Auto-learn dictionary from corrections.
+- Wayland-native global hotkey (evdev) — injection is covered by `wtype`.

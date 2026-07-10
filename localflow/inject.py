@@ -5,14 +5,19 @@ Backends, mirroring how dictation apps insert text:
 - ``type``: simulate keystrokes with pynput (works on macOS, Windows, X11).
 - ``paste``: put text on the clipboard and send Cmd/Ctrl+V, then restore the
   previous clipboard. Fastest for long text.
+- ``wtype``: Wayland-native typing via the `wtype` utility.
 - ``clipboard``: copy only; the user pastes manually.
 - ``stdout``: print to stdout — for piping, headless machines, and tests.
 
-``auto`` picks: type when a GUI session is detectable, else stdout.
+``auto`` picks: paste on a GUI session (wtype on Wayland-only sessions where
+the tool is installed), else stdout.
 """
 
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
 import sys
 import time
 
@@ -89,12 +94,59 @@ class PasteInjector(Injector):
         _send_enter_key()
 
 
+class WtypeInjector(Injector):
+    name = "wtype"
+
+    def inject(self, text: str) -> None:
+        subprocess.run(["wtype", "--", text], check=True)
+
+    def press_enter(self) -> None:
+        subprocess.run(["wtype", "-k", "Return"], check=True)
+
+
+_NO_SELECTION_SENTINEL = "⁣localflow:no-selection⁣"
+
+
+def get_selection() -> str | None:
+    """Return the currently selected text in the focused app, or None.
+
+    Works by seeding the clipboard with a sentinel, sending Cmd/Ctrl+C, and
+    reading the clipboard back: if the sentinel survived, nothing was
+    selected. The previous clipboard is restored afterwards.
+    """
+    import pyperclip
+    from pynput.keyboard import Controller, Key
+
+    keyboard = Controller()
+    try:
+        previous = pyperclip.paste()
+    except Exception:
+        previous = None
+    pyperclip.copy(_NO_SELECTION_SENTINEL)
+    time.sleep(0.05)
+    modifier = Key.cmd if sys.platform == "darwin" else Key.ctrl
+    with keyboard.pressed(modifier):
+        keyboard.press("c")
+        keyboard.release("c")
+    time.sleep(0.15)  # give the app time to service the copy
+    try:
+        text = pyperclip.paste()
+    finally:
+        if previous is not None:
+            pyperclip.copy(previous)
+    if text == _NO_SELECTION_SENTINEL or not text:
+        return None
+    return text
+
+
 def gui_available() -> bool:
     if sys.platform in ("darwin", "win32"):
         return True
-    import os
-
     return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
+def _wayland_only() -> bool:
+    return bool(os.environ.get("WAYLAND_DISPLAY")) and not os.environ.get("DISPLAY")
 
 
 def get_injector(backend: str = "auto") -> Injector:
@@ -102,12 +154,18 @@ def get_injector(backend: str = "auto") -> Injector:
     # immune to keyboard-layout quirks. Set backend="type" if your platform
     # lacks clipboard tooling (Linux needs xclip/xsel or wl-clipboard).
     if backend == "auto":
-        backend = "paste" if gui_available() else "stdout"
+        if not gui_available():
+            backend = "stdout"
+        elif _wayland_only() and shutil.which("wtype"):
+            backend = "wtype"  # pynput can't type into pure-Wayland sessions
+        else:
+            backend = "paste"
     backends = {
         "stdout": StdoutInjector,
         "clipboard": ClipboardInjector,
         "type": TypeInjector,
         "paste": PasteInjector,
+        "wtype": WtypeInjector,
     }
     if backend not in backends:
         raise ValueError(f"unknown injection backend {backend!r}")

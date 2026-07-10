@@ -35,6 +35,13 @@ class LocalFlowApp:
             self.config.history_path, enabled=self.config.history_enabled
         )
         self.injector = get_injector(backend or self.config.backend)
+        from .llm import create_backend
+
+        self.command_backend = create_backend(
+            self.config.llm_backend,
+            model=self.config.llm_model,
+            base_url=self.config.llm_base_url,
+        )
 
     # --- core pipeline ---
 
@@ -63,6 +70,7 @@ class LocalFlowApp:
         send_enter = False
         if self.config.press_enter_command:
             text, send_enter = cleanup.extract_press_enter(text)
+        text = self.dictionary.apply_snippets(text)
         if not text:
             return None
         self._inject_with_fallback(text)
@@ -75,6 +83,15 @@ class LocalFlowApp:
             audio_seconds=result.audio_seconds,
             latency_seconds=result.latency_seconds,
         )
+
+    def run_command(self, instruction: str, text: str | None = None) -> str:
+        """Command mode: apply a spoken instruction to text via the LLM."""
+        if self.command_backend is None:
+            raise RuntimeError(
+                "command mode is disabled — set llm_backend to 'openai-compat' "
+                "(local, e.g. Ollama) or 'anthropic' in the config"
+            )
+        return self.command_backend.rewrite(instruction, text)
 
     def _inject_with_fallback(self, text: str) -> None:
         """Never lose a dictation: fall back to the clipboard on failure."""
@@ -116,19 +133,31 @@ class LocalFlowApp:
               f"backend={self.injector.name}", file=sys.stderr)
         print("Loading ASR model...", file=sys.stderr)
         self.transcriber.load()
-        action = "Hold" if self.config.mode == "hold" else "Press"
-        print(f"{action} [{self.config.hotkey}] and speak. Ctrl+C to quit.",
-              file=sys.stderr)
+        if self.config.mode == "hold":
+            print(f"Hold [{self.config.hotkey}] and speak "
+                  "(double-tap for hands-free, tap again to stop). "
+                  "Ctrl+C to quit.", file=sys.stderr)
+        else:
+            print(f"Press [{self.config.hotkey}] to start/stop dictation. "
+                  "Ctrl+C to quit.", file=sys.stderr)
 
         def on_activate():
             try:
                 recorder.start()
+                if self.config.sound_cues:
+                    from .feedback import play_cue
+
+                    play_cue("start")
                 print("● recording...", file=sys.stderr)
             except RuntimeError as exc:
                 print(f"error: {exc}", file=sys.stderr)
 
         def on_deactivate():
             audio = recorder.stop()
+            if self.config.sound_cues:
+                from .feedback import play_cue
+
+                play_cue("stop")
             print(f"○ processing {duration_seconds(audio):.1f}s...",
                   file=sys.stderr)
             # Process off the hotkey-listener thread so the next dictation
@@ -141,15 +170,69 @@ class LocalFlowApp:
             self.config.hotkey, self.config.mode, on_activate, on_deactivate
         )
         listener.start()
+
+        command_listener = None
+        if self.command_backend is not None:
+            command_recorder = Recorder(
+                sample_rate=self.config.sample_rate,
+                max_seconds=self.config.max_seconds,
+            )
+
+            def on_command_start():
+                try:
+                    command_recorder.start()
+                    print("● command...", file=sys.stderr)
+                except RuntimeError as exc:
+                    print(f"error: {exc}", file=sys.stderr)
+
+            def on_command_stop():
+                audio = command_recorder.stop()
+                threading.Thread(
+                    target=self._run_command_and_report, args=(audio,), daemon=True
+                ).start()
+
+            command_listener = HotkeyListener(
+                self.config.command_hotkey, "hold", on_command_start, on_command_stop
+            )
+            command_listener.start()
+            print(f"Command mode on [{self.config.command_hotkey}]: select text, "
+                  "hold, and speak an instruction.", file=sys.stderr)
+
         try:
             listener.join()
         except KeyboardInterrupt:
             pass
         finally:
             listener.stop()
+            if command_listener:
+                command_listener.stop()
             if recorder.recording:
                 recorder.stop()
         print("bye", file=sys.stderr)
+
+    def _run_command_and_report(self, audio: np.ndarray) -> None:
+        try:
+            if duration_seconds(audio, self.config.sample_rate) < MIN_UTTERANCE_SECONDS:
+                return
+            result = self.transcriber.transcribe(audio, language=self.config.language)
+            instruction = result.text.strip()
+            if not instruction:
+                print("(no instruction heard)", file=sys.stderr)
+                return
+            from .inject import get_selection, gui_available
+
+            selection = get_selection() if gui_available() else None
+            scope = f"{len(selection)} chars selected" if selection else "no selection"
+            print(f"⚙ {instruction!r} ({scope})...", file=sys.stderr)
+            rewritten = self.run_command(instruction, selection)
+            if not rewritten:
+                print("(command produced no text)", file=sys.stderr)
+                return
+            # Pasting/typing over a selection replaces it in the focused app.
+            self._inject_with_fallback(rewritten)
+            print("✓ command applied", file=sys.stderr)
+        except Exception as exc:
+            print(f"command error: {exc}", file=sys.stderr)
 
     def _process_and_report(self, audio: np.ndarray) -> None:
         try:

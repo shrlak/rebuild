@@ -38,6 +38,10 @@ def build_parser() -> argparse.ArgumentParser:
     tr.add_argument("--raw", action="store_true", help="print raw ASR text, skip cleanup")
     tr.add_argument("--json", action="store_true", help="print full result entry as JSON")
 
+    rw = sub.add_parser("rewrite", help="command mode: apply an instruction to text via the configured LLM")
+    rw.add_argument("instruction", help="e.g. 'make this more formal'")
+    rw.add_argument("--text", help="text to transform (default: read from stdin if piped)")
+
     hist = sub.add_parser("history", help="show recent dictations")
     hist.add_argument("-n", type=int, default=10, help="number of entries (default 10)")
 
@@ -56,6 +60,15 @@ def build_parser() -> argparse.ArgumentParser:
     dvocab = dsub.add_parser("vocab", help="add vocabulary word(s) to bias the ASR")
     dvocab.add_argument("words", nargs="+")
     dsub.add_parser("list", help="show dictionary contents")
+
+    s = sub.add_parser("snippet", help="manage voice-triggered snippets")
+    ssub = s.add_subparsers(dest="snippet_command", required=True)
+    sadd = ssub.add_parser("add", help="add snippet: trigger phrase -> inserted text")
+    sadd.add_argument("trigger")
+    sadd.add_argument("text", help=r"snippet body; \n becomes a newline")
+    srm = ssub.add_parser("remove", help="remove a snippet")
+    srm.add_argument("trigger")
+    ssub.add_parser("list", help="show snippets")
 
     c = sub.add_parser("config", help="show or initialize configuration")
     csub = c.add_subparsers(dest="config_command", required=True)
@@ -107,6 +120,25 @@ def main(argv: list[str] | None = None) -> int:
             from dataclasses import asdict
 
             print(json.dumps(asdict(entry), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "rewrite":
+        from .llm import create_backend
+
+        backend = create_backend(
+            cfg.llm_backend, model=cfg.llm_model, base_url=cfg.llm_base_url
+        )
+        if backend is None:
+            print(
+                "command mode is disabled — set llm_backend to 'openai-compat' "
+                "(local, e.g. Ollama) or 'anthropic' in the config",
+                file=sys.stderr,
+            )
+            return 1
+        text = args.text
+        if text is None and not sys.stdin.isatty():
+            text = sys.stdin.read()
+        print(backend.rewrite(args.instruction, text or None))
         return 0
 
     if args.command == "history":
@@ -161,6 +193,23 @@ def main(argv: list[str] | None = None) -> int:
                 {"replacements": d.replacements, "vocabulary": d.vocabulary},
                 indent=2, ensure_ascii=False,
             ))
+        return 0
+
+    if args.command == "snippet":
+        d = Dictionary(cfg.dictionary_path)
+        if args.snippet_command == "add":
+            d.add_snippet(args.trigger, args.text.replace("\\n", "\n"))
+            d.save()
+            print(f"added snippet {args.trigger!r}")
+        elif args.snippet_command == "remove":
+            if d.remove_snippet(args.trigger):
+                d.save()
+                print(f"removed snippet {args.trigger!r}")
+            else:
+                print(f"not found: {args.trigger!r}", file=sys.stderr)
+                return 1
+        elif args.snippet_command == "list":
+            print(json.dumps(d.snippets, indent=2, ensure_ascii=False))
         return 0
 
     if args.command == "config":

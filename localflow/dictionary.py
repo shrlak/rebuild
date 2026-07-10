@@ -7,6 +7,9 @@ Two mechanisms, mirroring Wispr Flow's dictionary:
   "see translate too".
 - ``replacements``: exact post-ASR substitutions applied case-insensitively
   on word boundaries, e.g. "wispr" -> "Wispr", "local flow" -> "LocalFlow".
+- ``snippets``: voice-triggered canned text — say the trigger phrase, get the
+  block, e.g. "sign off" -> "Best,\nSpencer". Applied after cleanup so the
+  block's own formatting/capitalization is preserved verbatim.
 
 Stored as JSON so it's trivially editable by hand.
 """
@@ -23,6 +26,7 @@ class Dictionary:
         self.path = path
         self.replacements: dict[str, str] = {}
         self.vocabulary: list[str] = []
+        self.snippets: dict[str, str] = {}
         self._pattern: re.Pattern | None = None
         self.load()
 
@@ -31,13 +35,18 @@ class Dictionary:
             data = json.loads(self.path.read_text())
             self.replacements = dict(data.get("replacements", {}))
             self.vocabulary = list(data.get("vocabulary", []))
+            self.snippets = dict(data.get("snippets", {}))
         self._compile()
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(
             json.dumps(
-                {"replacements": self.replacements, "vocabulary": self.vocabulary},
+                {
+                    "replacements": self.replacements,
+                    "vocabulary": self.vocabulary,
+                    "snippets": self.snippets,
+                },
                 indent=2,
                 ensure_ascii=False,
             )
@@ -66,6 +75,12 @@ class Dictionary:
         self._compile()
         return removed
 
+    def add_snippet(self, trigger: str, text: str) -> None:
+        self.snippets[trigger.strip().lower()] = text
+
+    def remove_snippet(self, trigger: str) -> bool:
+        return self.snippets.pop(trigger.strip().lower(), None) is not None
+
     def add_vocabulary(self, word: str) -> None:
         word = word.strip()
         if word and word.lower() not in (w.lower() for w in self.vocabulary):
@@ -85,8 +100,22 @@ class Dictionary:
             lambda m: self.replacements[m.group(0).lower()], text
         )
 
+    def apply_snippets(self, text: str) -> str:
+        """Expand snippet triggers. Runs on *cleaned* text so blocks are
+        inserted verbatim; a trigger at the end of the text also swallows
+        the sentence period the ASR put after it."""
+        for trigger, block in sorted(self.snippets.items(), key=lambda i: -len(i[0])):
+            pattern = re.compile(
+                r"(?<![\w'-])" + re.escape(trigger) + r"(?![\w'-])[.!?]?\s*$|"
+                r"(?<![\w'-])" + re.escape(trigger) + r"(?![\w'-])",
+                re.IGNORECASE,
+            )
+            text = pattern.sub(lambda m: block, text)
+        return text
+
     def hotwords(self) -> str | None:
         """Bias string for the ASR (vocabulary + replacement targets)."""
         words = list(self.vocabulary)
         words += [v for v in self.replacements.values() if v not in words]
+        words += [t for t in self.snippets if t not in words]
         return " ".join(words) if words else None

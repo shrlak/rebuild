@@ -38,3 +38,33 @@ def test_auto_picks_paste_with_display(monkeypatch):
         pytest.skip("DISPLAY check is linux-only behavior")
     monkeypatch.setenv("DISPLAY", ":0")
     assert get_injector("auto").name == "paste"
+
+
+def test_auto_picks_wtype_on_pure_wayland(monkeypatch):
+    import sys
+
+    if sys.platform in ("darwin", "win32"):
+        pytest.skip("Wayland check is linux-only behavior")
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
+    monkeypatch.setattr("localflow.inject.shutil.which", lambda name: "/usr/bin/wtype")
+    assert get_injector("auto").name == "wtype"
+
+
+def test_wtype_injector_invokes_wtype(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        "localflow.inject.subprocess.run",
+        lambda cmd, check: calls.append(cmd),
+    )
+    inj = get_injector("wtype")
+    inj.inject("hello there")
+    inj.press_enter()
+    assert calls == [["wtype", "--", "hello there"], ["wtype", "-k", "Return"]]
+
+
+def test_play_cue_never_raises_headless():
+    from localflow.feedback import play_cue
+
+    play_cue("start")
+    play_cue("stop")

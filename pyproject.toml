@@ -24,6 +24,8 @@ desktop = [
 ]
 # Alternative ASR engine that loads GGML models (whisper.cpp bindings).
 whispercpp = ["pywhispercpp>=1.2"]
+# Command mode via the Claude API (the openai-compat backend needs no extra).
+anthropic = ["anthropic>=0.60"]
 dev = ["pytest>=7"]
 
 [project.scripts]
