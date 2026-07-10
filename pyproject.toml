@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "localflow"
+version = "0.1.0"
+description = "Local voice dictation: push-to-talk, on-device Whisper ASR, AI-style cleanup, types into any app. A local rebuild of Wispr Flow's core loop."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "faster-whisper>=1.0",
+    "numpy>=1.24",
+    "soundfile>=0.12",
+]
+
+[project.optional-dependencies]
+# Desktop features: mic capture, global hotkeys, typing/paste injection.
+desktop = [
+    "sounddevice>=0.4",
+    "pynput>=1.7",
+    "pyperclip>=1.8",
+]
+# Alternative ASR engine that loads GGML models (whisper.cpp bindings).
+whispercpp = ["pywhispercpp>=1.2"]
+dev = ["pytest>=7"]
+
+[project.scripts]
+localflow = "localflow.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["localflow*"]
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: tests that load the ASR model (deselect with '-m \"not slow\"')",
+]
